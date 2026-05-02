@@ -50,7 +50,7 @@ import "errors"
 //
 
 const (
-	degree = 3
+	degree = 3 
 	maxChildren = 2 * degree // 6
 	maxItems = maxChildren - 1
 	minItems = degree - 1
@@ -110,3 +110,23 @@ func (t *BTree) Insert(key, val []byte) {
 	
 }
 
+
+func (t *BTree) Delete(key []byte) bool {
+	if t.root == nil{
+		return false
+	}
+	deletedItem := t.root.delete(key, false)
+	
+	if t.root.numItems == 0{
+		if t.root.isLeaf(){
+			t.root = nil
+		} else {
+			t.root = t.root.children[0]
+		}
+	}
+	
+	if deletedItem != nil {
+		return true
+	}
+	return false
+}

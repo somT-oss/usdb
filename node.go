@@ -145,3 +145,144 @@ func (n *node) insert(item *item) bool {
 	}
 	return n.children[pos].insert(item)
 }
+
+func (n *node) removeItemAt(pos int) *item {
+	removedItem := n.items[pos] // getting the value of the key at that position in the node.
+	n.items[pos] = nil // updating the key value to none, i.e removing the key.
+	
+	 if lastPos := n.numItems - 1; pos < lastPos {
+			/* rearranging the keys in the node */
+			copy(n.items[pos:lastPos], n.items[pos+1:lastPos+1])
+			n.items[lastPos] = nil
+		}
+	n.numItems--
+	return removedItem
+}
+
+func (n *node) removeChildAt(pos int) *node {
+	removedChild := n.children[pos]
+	n.children[pos] = nil
+	
+	// fill the gap, if the position we are removing from is not the very last occupiedin the "children" array.
+	if lastPos := n.numChildren - 1; pos < lastPos {
+		copy(n.children[pos:lastPos], n.children[pos+1:lastPos+1])
+		n.children[lastPos] = nil
+	}
+	n.numChildren--
+	
+	return removedChild
+}
+
+func (n *node) fillChildAt(pos int) {
+	switch {
+		// borrow the right-most item from the left sibling if the left
+		// sibling exists and has more than the minimum number of items.
+		case pos > 0 && n.children[pos-1].numItems > minItems:
+			// establish our left and right nodes.
+			left, right := n.children[pos-1], n.children[pos]
+			// take the item from the parent and place it at the left-most position of the right node.
+			copy(right.items[1:right.numItems+1], right.items[:right.numItems])
+			right.items[0] = n.items[pos-1]
+			right.numItems++
+		
+		// for non-leaf nodes, make the right-most child of the left node the new left-most child of the right node.
+		if !right.isLeaf(){
+			right.insertChildAt(0, left.removeChildAt(left.numChildren-1))
+		}
+		// borrow the right-most item from the left node to r eplace 
+		n.items[pos-1] = left.removeItemAt(left.numItems - 1)
+		
+		// borrow the left-most item from the right sibling if the right 
+		// sibling exists and has more than the minimum number of items.
+		case pos < n.numChildren - 1 && n.children[pos+1].numItems > minItems:
+			// establish our left and right nodes.
+			left, right := n.children[pos], n.children[pos+1]
+			
+			// take the item from the parent and place it at the right-most position of the left node.
+			left.items[left.numItems] = n.items[pos]
+			left.numItems++
+			
+			// for non-leaf nodes, make the left-most child of the right node the new right child of the left node.
+			if !left.isLeaf() {
+				left.insertChildAt(left.numChildren, right.removeChildAt(0))
+			}
+			// borrow the left-most item from the right node to replace the parent item.
+			n.items[pos] = right.removeItemAt(0)
+		
+		// there are no suitable items to borrow a node from, so perform a merge.
+		default:
+			// if we are the right-most child pointer, merge the node with its left siblings.
+			// in all other cases, we prefer to merge the node with its right sibling for simplicity.
+			if pos >= n.numItems{
+				pos = n.numItems - 1
+			}
+			// establish our left and right nodes.
+			left, right := n.children[pos], n.children[pos+1]
+			// borrow an item from the parent node and place it at the right-most available position of the left node.
+			left.items[left.numItems] = n.removeItemAt(pos)
+			left.numItems++
+			
+			// migrate all items from the right node to the left node.
+			copy(left.items[left.numItems:], right.items[:right.numItems])
+			left.numItems += right.numItems
+			
+			// for non-left nodes, migrate all applicable children from the right node to the left node.
+			if !left.isLeaf(){
+				copy(left.children[left.numChildren:], right.children[:right.numChildren])
+				left.numChildren += right.numChildren
+			}	
+			// remove the child pointer from the parent to the right node and discard the right node.
+			n.removeChildAt(pos + 1)
+			right = nil
+	}
+}
+
+func (n *node) delete(key []byte, isSeekingSuccessor bool) *item {
+	pos, found := n.search(key)
+	
+	var next *node
+	
+	// we have found a node holding an item matching the supplied key.
+	if found {
+		// this is a leaf node, so we can simply remove the item.
+		if n.isLeaf() {
+			return n.removeItemAt(pos)
+		}
+		next, isSeekingSuccessor = n.children[pos+1], true
+	} else {
+		next = n.children[pos]
+	}
+	
+	// we have reached the leaf node containing the inorder successor, so remove the successor from the leaf.
+	if n.isLeaf() && isSeekingSuccessor {
+		return n.removeItemAt(0)
+	}
+	
+	// we were unable to find the item matching the given key. dont' do anything.
+	if next == nil {
+		return nil
+	}
+	
+	// continue traversing the tree to find an item matching the supplied key.
+	deletedItem := next.delete(key, isSeekingSuccessor)
+	
+	// we found the inorder successor, and we are now back at the internal node containing the item
+	// matching the supplied key. therefore, we replace the item with its inorder successor, effectively
+	// deleting the item from the tree
+	if found && isSeekingSuccessor{
+		n.items[pos] = deletedItem
+	}
+	
+	// check if an underflow occurred after we deleted an item down the tree.
+	if next.numItems < minItems{
+		// repair the underflow.
+		if found && isSeekingSuccessor{
+			n.fillChildAt(pos + 1)
+		} else {
+			n.fillChildAt(pos)
+		}
+	}
+	
+	// propagate the deleted item back to the previous stack frame.
+	return deletedItem
+}

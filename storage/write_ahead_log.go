@@ -70,8 +70,9 @@ func NewWAL(buffer bytes.Buffer, maxPage uint32, bufferedPages uint32, pageConte
 /*
 	implement these functions, for the wal.
 	push(page_number, page_content) - Adds a page to the in-memory buffer, writes to disk when buffer is full -- DONE.
-	write() - Writes all the content of the buffer to the WAL file.
-	clear() - Clears the current buffer so that we can start to store new data afresh.
+	write() - Writes all the content of the buffer to the WAL file. -- DONE.
+	clear() - Clears the current buffer so that we can start to store new data afresh. -- DONE.
+	persist() - Make sure that writes to the wal file are guaranteed writes on disk.
 */
 
 func (wal *WAL) Push(pageNumber uint32, pageContent []byte) error  {
@@ -120,7 +121,7 @@ func (wal *WAL) Write() error {
 	}
 	currPageCount += 1
 	
-	// write the updated pagecount as bytes in the same portion that has th byte representation of the number of pages.
+	// write the updated pagecount as bytes in the same portion that has the byte representation of the number of pages.
 	writeOffset := int64(9)
 	writeBuff := make([]byte, buffLength)
 	
@@ -136,6 +137,12 @@ func (wal *WAL) Write() error {
 }
 
 func (wal *WAL) Clear() error {
-	return errors.New("failed to clear the buffer.")
+	wal.buffer.Reset()
+	return nil
 }
 
+
+func (wal *WAL) Persist() error {
+	wal.file.Sync()
+	return nil
+}

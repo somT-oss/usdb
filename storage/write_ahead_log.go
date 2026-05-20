@@ -25,18 +25,17 @@ import (
 */
 
 const (
-	checksum=32
-	MAGICPHRASE="0x12232o"
+	checksum    = 32
+	MAGICPHRASE = "0x12232o"
 )
 
-
- type WAL struct {
-	buffer bytes.Buffer
-	maxPages uint32
+type WAL struct {
+	buffer        *bytes.Buffer
+	maxPages      uint32
 	bufferedPages uint32
-	pageContent [4096]byte	
-	file *os.File
-	filePath string
+	pageContent   [4096]byte
+	file          *os.File
+	filePath      string
 }
 
 type WALInterface interface {
@@ -45,48 +44,55 @@ type WALInterface interface {
 	Clear() error
 }
 
-func NewWAL(buffer bytes.Buffer, maxPage uint32, bufferedPages uint32, pageContent[4096]byte, file *os.File, filePath string) *WAL {
-	
-	file.Write([]byte(MAGICPHRASE)) // the first 8 bytes of the wal file are 8 bytes to confirm the validity of the file.
-	
+func NewWAL(maxPage uint32, bufferedPages uint32, pageContent [4096]byte, file *os.File, filePath string) (*WAL, error) {
+
+	_, err := file.Write([]byte(MAGICPHRASE)) // the first 8 bytes of the wal file are 8 bytes to confirm the validity of the file.
+	if err != nil {
+		log.Fatal("could not write MagicPhrase to wal file.")
+		return nil, err
+	}
 	pageCountInBuffer := 0
 	pageCountInBufferBytes := make([]byte, 4)
+
+	binary.BigEndian.PutUint32(pageCountInBufferBytes, uint32(pageCountInBuffer)) // the next 4 bytes are the number of pages written so far.
 	
-	binary.BigEndian.PutUint32(pageCountInBufferBytes, uint32(pageCountInBuffer)) // the next 4 bytes are the number of pages written so far. 
-	
-	file.Write(pageCountInBufferBytes)
-	defer file.Close()
+	_, err = file.Write(pageCountInBufferBytes)
+	if err != nil {
+		log.Fatal("could not write pageCount to wal file.")
+		return nil, err
+	}
 	
 	return &WAL{
-		buffer: buffer,
-		maxPages: maxPage,
+		buffer:        &bytes.Buffer{},
+		maxPages:      maxPage,
 		bufferedPages: bufferedPages,
-		pageContent: pageContent,
-		file: file,
-		filePath: filePath,
-	}
+		pageContent:   pageContent,
+		file:          file,
+		filePath:      filePath,
+	}, nil
 }
 
 /*
 	implement these functions, for the wal.
 	push(page_number, page_content) - Adds a page to the in-memory buffer, writes to disk when buffer is full -- DONE.
-	write() - Writes all the content of the buffer to the WAL file.
-	clear() - Clears the current buffer so that we can start to store new data afresh.
+	write() - Writes all the content of the buffer to the WAL file. -- DONE.
+	clear() - Clears the current buffer so that we can start to store new data afresh. -- DONE.
+	persist() - Make sure that writes to the wal file are guaranteed writes on disk.
 */
 
-func (wal *WAL) Push(pageNumber uint32, pageContent []byte) error  {
+func (wal *WAL) Push(pageNumber uint32, pageContent []byte) error {
 	if wal.bufferedPages >= wal.maxPages {
-		log.Println("the buffer is already at full capacity.")
+		fmt.Println("the buffer is already at full capacity.")
 		err := wal.Write() // write to the wal file.
 		if err != nil {
 			return errors.New("failed to write the contents of the buffer to the wal file.")
 		}
 	}
-	
+
 	// add the curr bytes(pageNumber) + pageContent + checksum to the current buffer
 	pageNumberBytes := make([]byte, 4)
 	checksumBytes := make([]byte, 4)
-	
+
 	binary.BigEndian.PutUint32(pageNumberBytes, pageNumber) // write the content of the integer byte conversion to the pageNumberBytes integer buffer.
 	binary.BigEndian.PutUint32(checksumBytes, checksum)
 	
@@ -98,12 +104,12 @@ func (wal *WAL) Push(pageNumber uint32, pageContent []byte) error  {
 	wal.bufferedPages += 1
 	
 	return nil
-} 
+}
 
 func (wal *WAL) Write() error {
-	
+
 	wal.file.Write(wal.buffer.Bytes()) // write the buffer to the wal file.
-	
+
 	// update the number of pages in the file += 1
 	// read the portion of the page that has the byte representation of the number of pages.
 	readOffset := int64(9)
@@ -119,23 +125,31 @@ func (wal *WAL) Write() error {
 		return fmt.Errorf("could not parse pageCount from string to int64.")
 	}
 	currPageCount += 1
-	
-	// write the updated pagecount as bytes in the same portion that has th byte representation of the number of pages.
+
+	// write the updated pagecount as bytes in the same portion that has the byte representation of the number of pages.
 	writeOffset := int64(9)
 	writeBuff := make([]byte, buffLength)
-	
+
 	binary.BigEndian.PutUint32(writeBuff, uint32(currPageCount))
-	
+
 	_, err = wal.file.WriteAt(writeBuff, writeOffset)
 	if err != nil {
 		return fmt.Errorf("could not write the updated ")
 	}
 	
-	defer wal.file.Close()
 	return nil
 }
 
 func (wal *WAL) Clear() error {
-	return errors.New("failed to clear the buffer.")
+	wal.buffer.Reset()
+	return nil
 }
 
+func (wal *WAL) Persist() error {
+	err := wal.file.Sync()
+	if err != nil{
+		log.Fatal("failed to persist data to disk.")
+		panic(err)
+	}
+	return nil
+}
